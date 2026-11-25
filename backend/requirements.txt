@@ -1,0 +1,25 @@
+# Core Web & Async Job API
+fastapi>=0.135.0
+uvicorn>=0.40.0
+python-multipart>=0.0.20
+httpx>=0.28.0
+
+# Media & Audio Utilities (bundled FFmpeg binary)
+imageio-ffmpeg>=0.6.0
+numpy>=2.0.0
+soundfile>=0.13.0
+
+# ASR, Alignment & Diarization (install PyTorch CUDA wheels matching your GPU)
+whisperx>=3.8.0
+faster-whisper>=1.2.0
+ctranslate2>=4.7.0
+torch>=2.6.0
+torchvision>=0.21.0
+torchaudio>=2.6.0
+transformers>=4.57.0
+pyannote-audio>=4.0.0
+
+# Upcoming Phase 3-4 Dubbing Dependencies (install when enabling translation & voice synthesis)
+# sentencepiece>=0.2.0
+# demucs>=4.0.1
+# coqui-tts>=0.25.0
