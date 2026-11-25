@@ -17,6 +17,10 @@ const STATUS_STYLE: Record<JobStatus, string> = {
   aligning: "bg-violet-500/20 text-violet-300",
   diarizing: "bg-amber-500/20 text-amber-300",
   formatting: "bg-teal-500/20 text-teal-300",
+  separating: "bg-fuchsia-500/20 text-fuchsia-300",
+  translating: "bg-cyan-500/20 text-cyan-300",
+  synthesizing: "bg-purple-500/20 text-purple-300",
+  mixing: "bg-lime-500/20 text-lime-300",
   completed: "bg-emerald-500/20 text-emerald-300",
   failed: "bg-rose-500/20 text-rose-300",
 };
@@ -28,6 +32,10 @@ const ACTIVE_STATUSES = new Set<JobStatus>([
   "aligning",
   "diarizing",
   "formatting",
+  "separating",
+  "translating",
+  "synthesizing",
+  "mixing",
 ]);
 
 export function JobQueueList({
@@ -73,14 +81,20 @@ export function JobQueueList({
                     <p className="mt-0.5 text-[11px] text-zinc-400">
                       {job.model_size}
                       {job.language ? ` · ${job.language}` : ""}
+                      {job.target_language ? ` → ${job.target_language}` : ""}
                       {job.duration_seconds !== null
                         ? ` · ${formatTimestamp(job.duration_seconds)}`
                         : ""}
-                      {job.segment_count > 0 ? ` · ${job.segment_count} segments` : ""}
+                      {job.segment_count > 0 ? ` · ${job.segment_count} segs` : ""}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-1.5">
+                    {(job.has_dubbed_video || job.has_dubbed_audio) && (
+                      <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-medium text-indigo-300">
+                        DUB
+                      </span>
+                    )}
                     <span
                       className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${STATUS_STYLE[job.status]}`}
                     >

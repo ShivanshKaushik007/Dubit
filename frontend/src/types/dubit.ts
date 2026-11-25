@@ -5,6 +5,10 @@ export type JobStatus =
   | "aligning"
   | "diarizing"
   | "formatting"
+  | "separating"
+  | "translating"
+  | "synthesizing"
+  | "mixing"
   | "completed"
   | "failed";
 
@@ -23,7 +27,17 @@ export type ComputeType =
   | "int8"
   | "float32";
 
-export type ExportFormat = "json" | "webvtt" | "srt" | "csv";
+export type ExportFormat =
+  | "json"
+  | "webvtt"
+  | "srt"
+  | "csv"
+  | "dubbed_vtt"
+  | "dubbed_srt"
+  | "dubbed_audio"
+  | "dubbed_video"
+  | "vocals"
+  | "background";
 
 export interface WordTimestamp {
   word: string;
@@ -37,6 +51,8 @@ export interface TranscriptSegment {
   start?: number;
   end?: number;
   text: string;
+  original_text?: string;
+  translated_text?: string;
   speaker?: string;
   words?: WordTimestamp[];
 }
@@ -51,6 +67,7 @@ export interface TranscriptMetadata {
 
 export interface TranscriptPayload {
   language?: string;
+  target_language?: string;
   segments: TranscriptSegment[];
   warnings?: string[];
   metadata?: TranscriptMetadata;
@@ -70,7 +87,11 @@ export interface JobSummary {
   compute_type: string;
   do_diarization: boolean;
   language: string | null;
+  target_language: string | null;
   has_video: boolean;
+  has_stems: boolean;
+  has_dubbed_audio: boolean;
+  has_dubbed_video: boolean;
   segment_count: number;
   error: string | null;
 }
@@ -79,6 +100,7 @@ export interface JobResponse extends JobSummary {
   output_format: ExportFormat;
   min_speakers: number | null;
   max_speakers: number | null;
+  dubbed_voices: Record<string, string>;
   warnings: string[];
   available_formats: ExportFormat[];
   data: TranscriptPayload | null;
@@ -97,6 +119,8 @@ export interface HealthResponse {
   supported_models: WhisperModelSize[];
   supported_compute_types: ComputeType[];
   supported_formats: ExportFormat[];
+  translation_languages: Record<string, string>;
+  dubbing_voices: Record<string, string[]>;
   max_upload_mb: number;
   queue_depth: number;
 }
@@ -110,13 +134,25 @@ export interface CreateJobOptions {
   doDiarization: boolean;
   minSpeakers: string;
   maxSpeakers: string;
+  targetLanguage: string;
+  preserveBackground: boolean;
 }
 
 export interface JobPatchPayload {
   segments: Array<{
     index: number;
     text?: string;
+    translated_text?: string;
     speaker?: string;
   }>;
   speaker_map: Record<string, string>;
+}
+
+export interface DubJobPayload {
+  target_language: string;
+  preserve_background: boolean;
+  bgm_volume: number;
+  max_speech_speed: number;
+  speaker_voice_map: Record<string, string>;
+  skip_translation: boolean;
 }

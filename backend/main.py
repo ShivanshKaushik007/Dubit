@@ -21,10 +21,12 @@ from config import (
     SUPPORTED_WHISPER_MODELS,
     settings,
 )
-from schemas import HealthResponse, JobPatchRequest, JobResponse, JobSummary
+from schemas import DubRequest, HealthResponse, JobPatchRequest, JobResponse, JobSummary
 from services.formatters import normalize_format_name
 from services.gpu_manager import get_device_info
 from services.job_manager import JobConflictError, JobManager, sanitize_filename
+from services.translation import SUPPORTED_DUB_LANGUAGES, normalize_lang_code
+from services.tts import DEFAULT_VOICES_BY_LANG
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,8 +38,14 @@ _CHUNK_SIZE = 1024 * 1024  # 1 MiB
 _DOWNLOAD_MEDIA_TYPES = {
     "json": "application/json; charset=utf-8",
     "webvtt": "text/vtt; charset=utf-8",
+    "dubbed_vtt": "text/vtt; charset=utf-8",
     "srt": "application/x-subrip; charset=utf-8",
+    "dubbed_srt": "application/x-subrip; charset=utf-8",
     "csv": "text/csv; charset=utf-8",
+    "dubbed_audio": "audio/wav",
+    "vocals": "audio/wav",
+    "background": "audio/wav",
+    "dubbed_video": "video/mp4",
 }
 
 
@@ -57,7 +65,7 @@ async def lifespan(application: FastAPI):
             application.state.job_manager.shutdown()
 
 
-app = FastAPI(title="AI Dubbing API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="AI Dubbing API", version="0.3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -105,6 +113,7 @@ def _validate_job_options(
     output_format: str,
     min_speakers: int | None,
     max_speakers: int | None,
+    target_language: str | None,
 ) -> str:
     if model_size not in SUPPORTED_WHISPER_MODELS:
         raise HTTPException(
@@ -120,6 +129,14 @@ def _validate_job_options(
         normalized_fmt = normalize_format_name(output_format)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if target_language and target_language.strip():
+        norm_target = normalize_lang_code(target_language)
+        if norm_target not in SUPPORTED_DUB_LANGUAGES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported target_language '{target_language}'.",
+            )
 
     if min_speakers is not None and min_speakers < 1:
         raise HTTPException(status_code=400, detail="min_speakers must be at least 1.")
@@ -142,6 +159,8 @@ async def _create_job_from_upload(
     compute_type: str,
     min_speakers: int | None,
     max_speakers: int | None,
+    target_language: str | None = None,
+    preserve_background: bool = True,
 ) -> JobResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
@@ -157,6 +176,7 @@ async def _create_job_from_upload(
         output_format=output_format,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
+        target_language=target_language,
     )
 
     manager = _get_manager(request)
@@ -180,6 +200,8 @@ async def _create_job_from_upload(
         min_speakers=min_speakers,
         max_speakers=max_speakers,
         compute_type=compute_type,
+        target_language=target_language,
+        preserve_background=preserve_background,
     )
 
 
@@ -191,7 +213,7 @@ def read_root() -> dict[str, str]:
 
 @app.get("/health", response_model=HealthResponse)
 def health_check(request: Request) -> HealthResponse:
-    """Return GPU capabilities, configuration flags, and queue depth."""
+    """Return GPU capabilities, dubbing languages/voices, and queue depth."""
     manager: JobManager | None = getattr(request.app.state, "job_manager", None)
     return HealthResponse(
         status="ok",
@@ -200,6 +222,8 @@ def health_check(request: Request) -> HealthResponse:
         supported_models=list(SUPPORTED_WHISPER_MODELS),
         supported_compute_types=list(SUPPORTED_COMPUTE_TYPES),
         supported_formats=list(SUPPORTED_EXPORT_FORMATS),
+        translation_languages=dict(SUPPORTED_DUB_LANGUAGES),
+        dubbing_voices=dict(DEFAULT_VOICES_BY_LANG),
         max_upload_mb=settings.max_upload_mb,
         queue_depth=manager.queue_depth() if manager is not None else 0,
     )
@@ -216,8 +240,10 @@ async def create_job(
     compute_type: Annotated[str, Form()] = settings.default_compute_type,
     min_speakers: Annotated[int | None, Form()] = None,
     max_speakers: Annotated[int | None, Form()] = None,
+    target_language: Annotated[str | None, Form()] = None,
+    preserve_background: Annotated[bool, Form()] = True,
 ) -> JobResponse:
-    """Upload a media file and queue an asynchronous transcription/diarization job."""
+    """Upload a media file and queue transcription (and optional dubbing)."""
     return await _create_job_from_upload(
         request,
         file=file,
@@ -228,6 +254,8 @@ async def create_job(
         compute_type=compute_type,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
+        target_language=target_language,
+        preserve_background=preserve_background,
     )
 
 
@@ -239,7 +267,7 @@ def list_jobs(request: Request) -> list[JobSummary]:
 
 @app.get("/jobs/{job_id}", response_model=JobResponse)
 def get_job(request: Request, job_id: str) -> JobResponse:
-    """Get current status, progress, warnings, and transcript payload for a job."""
+    """Get current status, progress, warnings, and transcript/dubbing payload for a job."""
     job = _get_manager(request).get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
@@ -248,7 +276,7 @@ def get_job(request: Request, job_id: str) -> JobResponse:
 
 @app.patch("/jobs/{job_id}", response_model=JobResponse)
 def patch_job(request: Request, job_id: str, payload: JobPatchRequest) -> JobResponse:
-    """Edit transcript segments or rename speaker labels and regenerate export files."""
+    """Edit transcript/translated text or rename speaker labels and regenerate export files."""
     manager = _get_manager(request)
     try:
         updated = manager.update_transcript(job_id, payload)
@@ -262,35 +290,58 @@ def patch_job(request: Request, job_id: str, payload: JobPatchRequest) -> JobRes
     return updated
 
 
-@app.get("/jobs/{job_id}/download/{fmt}")
-def download_export(request: Request, job_id: str, fmt: str) -> FileResponse:
-    """Download a completed job's transcript in JSON, WebVTT, SRT, or CSV format."""
-    try:
-        normalized = normalize_format_name(fmt)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+@app.post("/jobs/{job_id}/dub", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
+def dub_job(request: Request, job_id: str, payload: DubRequest) -> JobResponse:
+    """Queue stem separation, translation, TTS synthesis, and mixing for a transcribed job."""
+    norm_target = normalize_lang_code(payload.target_language)
+    if norm_target not in SUPPORTED_DUB_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported target_language '{payload.target_language}'.",
+        )
 
     manager = _get_manager(request)
     try:
-        resolved = manager.get_download_path(job_id, normalized)
+        queued = manager.enqueue_dub(job_id, payload)
+    except JobConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if queued is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return queued
+
+
+@app.get("/jobs/{job_id}/download/{fmt}")
+def download_export(request: Request, job_id: str, fmt: str) -> FileResponse:
+    """Download transcript exports, dubbed audio/video, or separated stems."""
+    lowered = fmt.strip().lower()
+    if lowered not in ("dubbed_video", "dubbed_audio", "dubbed_vtt", "dubbed_srt", "vocals", "background"):
+        try:
+            lowered = normalize_format_name(lowered)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    manager = _get_manager(request)
+    try:
+        resolved = manager.get_download_path(job_id, lowered)
     except JobConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     if resolved is None:
-        raise HTTPException(status_code=404, detail="Job export not found.")
+        raise HTTPException(status_code=404, detail="Requested asset not found.")
 
     file_path, download_name = resolved
     return FileResponse(
         path=file_path,
-        media_type=_DOWNLOAD_MEDIA_TYPES[normalized],
+        media_type=_DOWNLOAD_MEDIA_TYPES.get(lowered, "application/octet-stream"),
         filename=download_name,
     )
 
 
 @app.get("/jobs/{job_id}/media")
 def stream_media(request: Request, job_id: str) -> FileResponse:
-    """Stream the uploaded audio or video file for synchronized browser playback."""
-    resolved = _get_manager(request).get_media_path(job_id)
+    """Stream the original uploaded audio or video file for browser playback."""
+    resolved = _get_manager(request).get_media_path(job_id, dubbed=False)
     if resolved is None:
         raise HTTPException(status_code=404, detail="Job media not found.")
 
@@ -300,6 +351,18 @@ def stream_media(request: Request, job_id: str) -> FileResponse:
         path=media_path,
         media_type=guessed_type or "application/octet-stream",
     )
+
+
+@app.get("/jobs/{job_id}/dubbed")
+def stream_dubbed_media(request: Request, job_id: str) -> FileResponse:
+    """Stream the dubbed MP4 video or WAV audio file for browser playback."""
+    resolved = _get_manager(request).get_media_path(job_id, dubbed=True)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Dubbed media has not been generated for this job.")
+
+    media_path, filename = resolved
+    media_type = "video/mp4" if media_path.suffix.lower() == ".mp4" else "audio/wav"
+    return FileResponse(path=media_path, media_type=media_type, filename=filename)
 
 
 @app.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)

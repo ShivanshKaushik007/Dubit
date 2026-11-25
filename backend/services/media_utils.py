@@ -107,8 +107,12 @@ def extract_audio(
     return str(dst)
 
 
-def load_audio_waveform(audio_path: str | Path, sample_rate: int = WHISPER_SAMPLE_RATE) -> np.ndarray:
-    """Decode audio via imageio-ffmpeg into a mono float32 waveform without requiring PATH ffmpeg."""
+def load_audio_waveform(
+    audio_path: str | Path,
+    sample_rate: int = WHISPER_SAMPLE_RATE,
+    channels: int = 1,
+) -> np.ndarray:
+    """Decode audio via imageio-ffmpeg into float32 waveform without requiring PATH ffmpeg."""
     src = Path(audio_path)
     if not src.is_file():
         raise MediaError(f"Audio file not found: {src}")
@@ -123,7 +127,7 @@ def load_audio_waveform(audio_path: str | Path, sample_rate: int = WHISPER_SAMPL
         "-f",
         "s16le",
         "-ac",
-        "1",
+        str(channels),
         "-acodec",
         "pcm_s16le",
         "-ar",
@@ -138,7 +142,11 @@ def load_audio_waveform(audio_path: str | Path, sample_rate: int = WHISPER_SAMPL
     if not proc.stdout:
         raise MediaError("Decoded audio stream is empty.")
 
-    return np.frombuffer(proc.stdout, dtype=np.int16).flatten().astype(np.float32) / 32768.0
+    samples = np.frombuffer(proc.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+    if channels > 1:
+        frame_count = len(samples) // channels
+        return samples[: frame_count * channels].reshape(frame_count, channels).T
+    return samples.flatten()
 
 
 def merge_audio_video(

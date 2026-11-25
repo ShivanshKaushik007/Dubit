@@ -25,7 +25,7 @@ const MODEL_NOTES: Record<WhisperModelSize, string> = {
   "large-v3-turbo": "Fast large model (~4–5 GB VRAM with int8_float16)",
 };
 
-const LANGUAGES = [
+const SOURCE_LANGUAGES = [
   { code: "", label: "Auto-detect" },
   { code: "en", label: "English (en)" },
   { code: "es", label: "Spanish (es)" },
@@ -50,6 +50,8 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
   const [doDiarization, setDoDiarization] = useState<boolean>(false);
   const [minSpeakers, setMinSpeakers] = useState<string>("");
   const [maxSpeakers, setMaxSpeakers] = useState<string>("");
+  const [targetLanguage, setTargetLanguage] = useState<string>("");
+  const [preserveBackground, setPreserveBackground] = useState<boolean>(true);
 
   const models = health?.supported_models ?? [
     "tiny",
@@ -66,6 +68,14 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
     "int8",
     "float32",
   ];
+  const translationLanguages = health?.translation_languages ?? {
+    en: "English",
+    es: "Spanish",
+    fr: "French",
+    de: "German",
+    hi: "Hindi",
+    ja: "Japanese",
+  };
 
   const handleFileSelected = (selected: File | undefined) => {
     if (selected) {
@@ -85,6 +95,8 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
       doDiarization,
       minSpeakers,
       maxSpeakers,
+      targetLanguage,
+      preserveBackground,
     });
   };
 
@@ -96,10 +108,10 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
       <div className="mb-4 flex items-center justify-between border-b border-zinc-800 pb-3">
         <div>
           <h2 className="text-base font-semibold text-zinc-100">
-            1. New Transcription Job
+            1. New Studio Job
           </h2>
           <p className="text-xs text-zinc-400">
-            Upload audio or video; jobs execute sequentially on the GPU worker.
+            Transcribe first to review, or pick a target language to auto-dub.
           </p>
         </div>
         {health && (
@@ -208,7 +220,7 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
             onChange={(e) => setLanguage(e.target.value)}
             className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
           >
-            {LANGUAGES.map((lang) => (
+            {SOURCE_LANGUAGES.map((lang) => (
               <option key={lang.code || "auto"} value={lang.code}>
                 {lang.label}
               </option>
@@ -216,6 +228,26 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
           </select>
         </div>
 
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-300">
+            Auto-Dub Target (Optional)
+          </label>
+          <select
+            value={targetLanguage}
+            onChange={(e) => setTargetLanguage(e.target.value)}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+          >
+            <option value="">Transcribe only (dub in workbench)</option>
+            {Object.entries(translationLanguages).map(([code, name]) => (
+              <option key={code} value={code}>
+                {name} ({code})
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs font-medium text-zinc-300">
             Primary Export Format
@@ -231,6 +263,20 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
             <option value="csv">CSV</option>
           </select>
         </div>
+
+        {targetLanguage && (
+          <div className="flex items-end pb-2">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={preserveBackground}
+                onChange={(e) => setPreserveBackground(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-600 accent-indigo-500"
+              />
+              Preserve BGM/SFX (Demucs)
+            </label>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
@@ -297,7 +343,11 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
         disabled={!file || isSubmitting}
         className="mt-4 w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {isSubmitting ? "Uploading & Queueing..." : "Queue Transcription Job"}
+        {isSubmitting
+          ? "Uploading & Queueing..."
+          : targetLanguage
+            ? `Queue Transcribe + Dub (${targetLanguage.toUpperCase()})`
+            : "Queue Transcription Job"}
       </button>
     </form>
   );

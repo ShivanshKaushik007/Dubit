@@ -1,5 +1,6 @@
 import type {
   CreateJobOptions,
+  DubJobPayload,
   ExportFormat,
   HealthResponse,
   JobPatchPayload,
@@ -59,9 +60,13 @@ export function createJob(options: CreateJobOptions): Promise<JobResponse> {
   formData.append("model_size", options.modelSize);
   formData.append("compute_type", options.computeType);
   formData.append("do_diarization", String(options.doDiarization));
+  formData.append("preserve_background", String(options.preserveBackground));
 
   if (options.language.trim()) {
     formData.append("language", options.language.trim());
+  }
+  if (options.targetLanguage.trim()) {
+    formData.append("target_language", options.targetLanguage.trim());
   }
   if (options.doDiarization && options.minSpeakers.trim()) {
     formData.append("min_speakers", options.minSpeakers.trim());
@@ -87,6 +92,17 @@ export function updateJobTranscript(
   });
 }
 
+export function dubJob(
+  jobId: string,
+  payload: DubJobPayload
+): Promise<JobResponse> {
+  return requestJson<JobResponse>(`${API_BASE_URL}/jobs/${encodeURIComponent(jobId)}/dub`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function deleteJob(jobId: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/jobs/${encodeURIComponent(jobId)}`, {
     method: "DELETE",
@@ -102,4 +118,8 @@ export function getDownloadUrl(jobId: string, format: ExportFormat): string {
 
 export function getMediaUrl(jobId: string): string {
   return `${API_BASE_URL}/jobs/${encodeURIComponent(jobId)}/media`;
+}
+
+export function getDubbedMediaUrl(jobId: string): string {
+  return `${API_BASE_URL}/jobs/${encodeURIComponent(jobId)}/dubbed`;
 }

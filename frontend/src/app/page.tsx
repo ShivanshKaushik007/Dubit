@@ -7,6 +7,7 @@ import { UploadPanel } from "@/components/UploadPanel";
 import {
   createJob,
   deleteJob,
+  dubJob,
   getHealth,
   getJob,
   listJobs,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/api";
 import type {
   CreateJobOptions,
+  DubJobPayload,
   HealthResponse,
   JobPatchPayload,
   JobResponse,
@@ -28,6 +30,10 @@ const ACTIVE_STATUSES = new Set<JobStatus>([
   "aligning",
   "diarizing",
   "formatting",
+  "separating",
+  "translating",
+  "synthesizing",
+  "mixing",
 ]);
 
 export default function StudioPage() {
@@ -148,6 +154,19 @@ export default function StudioPage() {
     }
   };
 
+  const handleDubJob = async (jobId: string, payload: DubJobPayload) => {
+    setBannerError(null);
+    try {
+      const queued = await dubJob(jobId, payload);
+      setSelectedJob(queued);
+      await refreshAll(jobId);
+    } catch (err: unknown) {
+      setBannerError(
+        err instanceof Error ? err.message : "Failed to queue dubbing job."
+      );
+    }
+  };
+
   const handleDeleteJob = async (jobId: string) => {
     setBannerError(null);
     try {
@@ -174,7 +193,7 @@ export default function StudioPage() {
               Dubit <span className="font-normal text-indigo-400">Studio</span>
             </h1>
             <p className="text-xs text-zinc-400">
-              AI Transcription, Speaker Diarization &amp; Dubbing Workbench
+              AI Transcription, Speaker Diarization, Translation &amp; Dubbing Workbench
             </p>
           </div>
 
@@ -231,19 +250,19 @@ export default function StudioPage() {
           <div className="lg:col-span-7">
             {selectedJob ? (
               <TranscriptWorkbench
-                key={selectedJob.job_id}
+                key={`${selectedJob.job_id}-${selectedJob.has_dubbed_audio}-${selectedJob.has_dubbed_video}`}
                 job={selectedJob}
+                health={health}
                 onSaveEdits={handleSaveEdits}
+                onDubJob={handleDubJob}
               />
             ) : (
               <div className="flex h-full min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/30 p-8 text-center">
                 <p className="text-sm font-medium text-zinc-300">
-                  Select a job or upload a file to inspect the transcript
+                  Select a job or upload a file to start transcribing and dubbing
                 </p>
                 <p className="mt-1 max-w-md text-xs text-zinc-500">
-                  Completed jobs open an interactive audio/video player synced to
-                  editable word/segment transcripts and one-click VTT, SRT, JSON,
-                  and CSV downloads.
+                  Review transcripts, translate into 20+ languages, preserve background music with Demucs, and preview/download dubbed MP4/WAV files.
                 </p>
               </div>
             )}

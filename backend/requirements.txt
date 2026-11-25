@@ -19,7 +19,8 @@ torchaudio>=2.6.0
 transformers>=4.57.0
 pyannote-audio>=4.0.0
 
-# Upcoming Phase 3-4 Dubbing Dependencies (install when enabling translation & voice synthesis)
-# sentencepiece>=0.2.0
-# demucs>=4.0.1
-# coqui-tts>=0.25.0
+# Phase 3-4 Dubbing Dependencies
+sentencepiece>=0.2.0
+demucs>=4.1.0
+edge-tts>=7.3.0
+scipy>=1.14.0
