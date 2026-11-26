@@ -9,6 +9,7 @@ import type {
   HealthResponse,
   JobPatchPayload,
   JobResponse,
+  TTSEngine,
   TranscriptSegment,
 } from "@/types/dubit";
 
@@ -63,13 +64,28 @@ export function TranscriptWorkbench({
   const [dubTargetLang, setDubTargetLang] = useState<string>(
     job.target_language ?? (job.language === "en" ? "es" : "en")
   );
+  const [ttsEngine, setTtsEngine] = useState<TTSEngine>(
+    (job.tts_engine as TTSEngine) || "auto"
+  );
   const [preserveBackground, setPreserveBackground] = useState<boolean>(true);
   const [bgmVolume, setBgmVolume] = useState<number>(0.28);
   const [maxSpeed, setMaxSpeed] = useState<number>(1.35);
+  const [emotionIntensity, setEmotionIntensity] = useState<number>(1.0);
+  const [accentBleedControl, setAccentBleedControl] = useState<number>(0.25);
   const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>(
     job.dubbed_voices ?? {}
   );
   const [isStartingDub, setIsStartingDub] = useState<boolean>(false);
+
+  const cloningAvailable = Boolean(health?.cloning_available);
+  const cloningSupportedForLang = useMemo(() => {
+    const langs = health?.cloning_languages ?? [];
+    return langs.includes(dubTargetLang);
+  }, [health, dubTargetLang]);
+
+  const usingChatterbox =
+    ttsEngine === "chatterbox" ||
+    (ttsEngine === "auto" && cloningAvailable && cloningSupportedForLang);
 
   const segments: TranscriptSegment[] = useMemo(
     () => job.data?.segments ?? [],
@@ -205,9 +221,12 @@ export function TranscriptWorkbench({
     try {
       await onDubJob(job.job_id, {
         target_language: dubTargetLang,
+        tts_engine: ttsEngine,
         preserve_background: preserveBackground,
         bgm_volume: bgmVolume,
         max_speech_speed: maxSpeed,
+        emotion_intensity: emotionIntensity,
+        accent_bleed_control: accentBleedControl,
         speaker_voice_map: voiceOverrides,
         skip_translation: skipTranslation,
       });
@@ -249,6 +268,16 @@ export function TranscriptWorkbench({
               )}
               {" · "}Model: <span className="text-zinc-200">{job.model_size}</span>
               {" · "}Segments: <span className="text-zinc-200">{segments.length}</span>
+              {job.tts_engine_used && (
+                <>
+                  {" · "}Voice:{" "}
+                  <span className="text-emerald-300">
+                    {job.tts_engine_used === "chatterbox"
+                      ? "Chatterbox Cloned"
+                      : "Edge-TTS"}
+                  </span>
+                </>
+              )}
             </p>
           </div>
 
@@ -382,15 +411,24 @@ export function TranscriptWorkbench({
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold text-indigo-200">
-                    AI Dubbing Studio (Stems + Translation + Neural TTS)
+                    AI Dubbing Studio (Stems + Translation + Voice Cloning)
                   </h3>
                   <p className="text-[11px] text-zinc-400">
-                    Separates vocals/BGM with Demucs, translates via local M2M100, and mixes time-fitted speech.
+                    Separates vocals/BGM with Demucs, translates via M2M100, and clones speaker voice &amp; emotion per line.
                   </p>
                 </div>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                    cloningAvailable
+                      ? "bg-emerald-500/15 text-emerald-300"
+                      : "bg-zinc-800 text-zinc-400"
+                  }`}
+                >
+                  {cloningAvailable ? "Chatterbox Cloning Ready" : "Edge-TTS Mode"}
+                </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label className="mb-1 block text-xs text-zinc-300">
                     Target Language
@@ -413,6 +451,25 @@ export function TranscriptWorkbench({
 
                 <div>
                   <label className="mb-1 block text-xs text-zinc-300">
+                    Voice Engine
+                  </label>
+                  <select
+                    value={ttsEngine}
+                    onChange={(e) => setTtsEngine(e.target.value as TTSEngine)}
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="auto">
+                      Auto ({cloningAvailable && cloningSupportedForLang ? "Chatterbox Clone" : "Edge-TTS"})
+                    </option>
+                    <option value="chatterbox" disabled={!cloningAvailable}>
+                      Chatterbox Voice Clone
+                    </option>
+                    <option value="edge_tts">Edge-TTS Neural Voices</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-300">
                     BGM Level ({Math.round(bgmVolume * 100)}%)
                   </label>
                   <input
@@ -428,7 +485,7 @@ export function TranscriptWorkbench({
 
                 <div>
                   <label className="mb-1 block text-xs text-zinc-300">
-                    Max Timing Speed-Up ({maxSpeed.toFixed(2)}x)
+                    Max Speed-Up ({maxSpeed.toFixed(2)}x)
                   </label>
                   <input
                     type="range"
@@ -442,6 +499,39 @@ export function TranscriptWorkbench({
                 </div>
               </div>
 
+              {usingChatterbox && (
+                <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-emerald-500/20 bg-emerald-950/10 p-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-emerald-200">
+                      Emotion Intensity ({emotionIntensity.toFixed(2)}x)
+                    </label>
+                    <input
+                      type="range"
+                      min={0.4}
+                      max={1.8}
+                      step={0.05}
+                      value={emotionIntensity}
+                      onChange={(e) => setEmotionIntensity(Number(e.target.value))}
+                      className="w-full accent-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-emerald-200">
+                      Accent Transfer / CFG ({accentBleedControl.toFixed(2)})
+                    </label>
+                    <input
+                      type="range"
+                      min={0.0}
+                      max={0.7}
+                      step={0.05}
+                      value={accentBleedControl}
+                      onChange={(e) => setAccentBleedControl(Number(e.target.value))}
+                      className="w-full accent-emerald-500"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="mt-3 flex flex-wrap items-center gap-4">
                 <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-200">
                   <input
@@ -452,36 +542,43 @@ export function TranscriptWorkbench({
                   />
                   Separate &amp; Duck Original BGM/SFX
                 </label>
+                {usingChatterbox && !preserveBackground && (
+                  <span className="text-[11px] text-amber-300">
+                    Enable BGM/Vocal separation so Chatterbox has a clean vocal prompt.
+                  </span>
+                )}
               </div>
 
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {speakerKeysForVoices.map((spk, idx) => (
-                  <div key={spk} className="flex items-center gap-2">
-                    <span className="w-24 truncate text-xs text-zinc-300">
-                      {spk === "DEFAULT" ? "Voice" : spk}:
-                    </span>
-                    <select
-                      value={
-                        voiceOverrides[spk] ??
-                        availableVoices[idx % availableVoices.length]
-                      }
-                      onChange={(e) =>
-                        setVoiceOverrides((prev) => ({
-                          ...prev,
-                          [spk]: e.target.value,
-                        }))
-                      }
-                      className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 focus:border-indigo-500 focus:outline-none"
-                    >
-                      {availableVoices.map((voice) => (
-                        <option key={voice} value={voice}>
-                          {voice}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-              </div>
+              {!usingChatterbox && (
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {speakerKeysForVoices.map((spk, idx) => (
+                    <div key={spk} className="flex items-center gap-2">
+                      <span className="w-24 truncate text-xs text-zinc-300">
+                        {spk === "DEFAULT" ? "Voice" : spk}:
+                      </span>
+                      <select
+                        value={
+                          voiceOverrides[spk] ??
+                          availableVoices[idx % availableVoices.length]
+                        }
+                        onChange={(e) =>
+                          setVoiceOverrides((prev) => ({
+                            ...prev,
+                            [spk]: e.target.value,
+                          }))
+                        }
+                        className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                      >
+                        {availableVoices.map((voice) => (
+                          <option key={voice} value={voice}>
+                            {voice}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button

@@ -61,6 +61,7 @@ export function createJob(options: CreateJobOptions): Promise<JobResponse> {
   formData.append("compute_type", options.computeType);
   formData.append("do_diarization", String(options.doDiarization));
   formData.append("preserve_background", String(options.preserveBackground));
+  formData.append("tts_engine", options.ttsEngine);
 
   if (options.language.trim()) {
     formData.append("language", options.language.trim());

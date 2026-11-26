@@ -7,6 +7,7 @@ import type {
   CreateJobOptions,
   ExportFormat,
   HealthResponse,
+  TTSEngine,
   WhisperModelSize,
 } from "@/types/dubit";
 
@@ -52,6 +53,7 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
   const [maxSpeakers, setMaxSpeakers] = useState<string>("");
   const [targetLanguage, setTargetLanguage] = useState<string>("");
   const [preserveBackground, setPreserveBackground] = useState<boolean>(true);
+  const [ttsEngine, setTtsEngine] = useState<TTSEngine>("auto");
 
   const models = health?.supported_models ?? [
     "tiny",
@@ -97,6 +99,7 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
       maxSpeakers,
       targetLanguage,
       preserveBackground,
+      ttsEngine,
     });
   };
 
@@ -265,7 +268,25 @@ export function UploadPanel({ health, isSubmitting, onSubmit }: UploadPanelProps
         </div>
 
         {targetLanguage && (
-          <div className="flex items-end pb-2">
+          <div className="space-y-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-zinc-300">
+                Dubbing Voice Engine
+              </label>
+              <select
+                value={ttsEngine}
+                onChange={(e) => setTtsEngine(e.target.value as TTSEngine)}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="auto">
+                  Auto ({health?.cloning_available ? "Chatterbox Cloning if supported" : "Edge-TTS"})
+                </option>
+                <option value="chatterbox" disabled={!health?.cloning_available}>
+                  Chatterbox Voice Cloning
+                </option>
+                <option value="edge_tts">Edge-TTS Neural Voices</option>
+              </select>
+            </div>
             <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
               <input
                 type="checkbox"

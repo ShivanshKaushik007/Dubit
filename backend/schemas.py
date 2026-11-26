@@ -22,6 +22,7 @@ JobStatus = Literal[
 ]
 
 OutputFormat = Literal["json", "webvtt", "srt", "csv"]
+TTSEngine = Literal["auto", "chatterbox", "edge_tts"]
 
 
 class TranscriptSegmentUpdate(BaseModel):
@@ -44,9 +45,12 @@ class DubRequest(BaseModel):
     """Configuration for dubbing an existing transcribed job into a target language."""
 
     target_language: str = Field(min_length=2, max_length=16)
+    tts_engine: TTSEngine = "auto"
     preserve_background: bool = True
     bgm_volume: float = Field(default=0.28, ge=0.0, le=1.0)
     max_speech_speed: float = Field(default=1.35, ge=1.0, le=2.0)
+    emotion_intensity: float = Field(default=1.0, ge=0.4, le=1.8)
+    accent_bleed_control: float = Field(default=0.25, ge=0.0, le=0.7)
     speaker_voice_map: dict[str, str] = Field(default_factory=dict)
     skip_translation: bool = False
 
@@ -68,6 +72,8 @@ class JobSummary(BaseModel):
     do_diarization: bool
     language: str | None = None
     target_language: str | None = None
+    tts_engine: str = "auto"
+    tts_engine_used: str | None = None
     has_video: bool = False
     has_stems: bool = False
     has_dubbed_audio: bool = False
@@ -94,6 +100,8 @@ class HealthResponse(BaseModel):
     status: str
     gpu: dict[str, Any]
     hf_token_configured: bool
+    cloning_available: bool
+    cloning_languages: list[str]
     supported_models: list[str]
     supported_compute_types: list[str]
     supported_formats: list[str]

@@ -27,6 +27,8 @@ export type ComputeType =
   | "int8"
   | "float32";
 
+export type TTSEngine = "auto" | "chatterbox" | "edge_tts";
+
 export type ExportFormat =
   | "json"
   | "webvtt"
@@ -88,6 +90,8 @@ export interface JobSummary {
   do_diarization: boolean;
   language: string | null;
   target_language: string | null;
+  tts_engine: string;
+  tts_engine_used: string | null;
   has_video: boolean;
   has_stems: boolean;
   has_dubbed_audio: boolean;
@@ -116,6 +120,8 @@ export interface HealthResponse {
     reserved_vram_mb: number;
   };
   hf_token_configured: boolean;
+  cloning_available: boolean;
+  cloning_languages: string[];
   supported_models: WhisperModelSize[];
   supported_compute_types: ComputeType[];
   supported_formats: ExportFormat[];
@@ -136,6 +142,7 @@ export interface CreateJobOptions {
   maxSpeakers: string;
   targetLanguage: string;
   preserveBackground: boolean;
+  ttsEngine: TTSEngine;
 }
 
 export interface JobPatchPayload {
@@ -150,9 +157,12 @@ export interface JobPatchPayload {
 
 export interface DubJobPayload {
   target_language: string;
+  tts_engine: TTSEngine;
   preserve_background: boolean;
   bgm_volume: number;
   max_speech_speed: number;
+  emotion_intensity: number;
+  accent_bleed_control: number;
   speaker_voice_map: Record<string, string>;
   skip_translation: boolean;
 }

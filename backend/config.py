@@ -97,10 +97,22 @@ class Settings:
     default_compute_type: str = field(default_factory=lambda: os.environ.get("COMPUTE_TYPE", "auto"))
     default_batch_size: int = field(default_factory=lambda: max(1, int(os.environ.get("WHISPER_BATCH_SIZE", "8"))))
     default_vad_method: str = field(default_factory=lambda: os.environ.get("WHISPER_VAD_METHOD", "pyannote"))
+    tts_venv_python: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get(
+                "DUBIT_TTS_PYTHON",
+                BASE_DIR / "tts_venv" / "Scripts" / "python.exe",
+            )
+        )
+    )
 
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
+
+    def is_cloning_available(self) -> bool:
+        """Return True when the isolated Chatterbox TTS environment exists."""
+        return self.tts_venv_python.is_file()
 
     def get_hf_token(self) -> str | None:
         token = os.environ.get("HF_TOKEN", "").strip()

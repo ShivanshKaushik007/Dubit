@@ -26,7 +26,7 @@ from services.formatters import normalize_format_name
 from services.gpu_manager import get_device_info
 from services.job_manager import JobConflictError, JobManager, sanitize_filename
 from services.translation import SUPPORTED_DUB_LANGUAGES, normalize_lang_code
-from services.tts import DEFAULT_VOICES_BY_LANG
+from services.tts import CHATTERBOX_SUPPORTED_LANGUAGES, DEFAULT_VOICES_BY_LANG
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,6 +161,7 @@ async def _create_job_from_upload(
     max_speakers: int | None,
     target_language: str | None = None,
     preserve_background: bool = True,
+    tts_engine: str = "auto",
 ) -> JobResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
@@ -202,6 +203,7 @@ async def _create_job_from_upload(
         compute_type=compute_type,
         target_language=target_language,
         preserve_background=preserve_background,
+        tts_engine=tts_engine,
     )
 
 
@@ -219,6 +221,8 @@ def health_check(request: Request) -> HealthResponse:
         status="ok",
         gpu=get_device_info(),
         hf_token_configured=settings.get_hf_token() is not None,
+        cloning_available=settings.is_cloning_available(),
+        cloning_languages=sorted(CHATTERBOX_SUPPORTED_LANGUAGES),
         supported_models=list(SUPPORTED_WHISPER_MODELS),
         supported_compute_types=list(SUPPORTED_COMPUTE_TYPES),
         supported_formats=list(SUPPORTED_EXPORT_FORMATS),
@@ -242,8 +246,11 @@ async def create_job(
     max_speakers: Annotated[int | None, Form()] = None,
     target_language: Annotated[str | None, Form()] = None,
     preserve_background: Annotated[bool, Form()] = True,
+    tts_engine: Annotated[str, Form()] = "auto",
 ) -> JobResponse:
     """Upload a media file and queue transcription (and optional dubbing)."""
+    if tts_engine not in ("auto", "chatterbox", "edge_tts"):
+        raise HTTPException(status_code=400, detail="tts_engine must be 'auto', 'chatterbox', or 'edge_tts'.")
     return await _create_job_from_upload(
         request,
         file=file,
@@ -256,6 +263,7 @@ async def create_job(
         max_speakers=max_speakers,
         target_language=target_language,
         preserve_background=preserve_background,
+        tts_engine=tts_engine,
     )
 
 

@@ -161,6 +161,7 @@ class JobManager:
         compute_type: str = "auto",
         target_language: str | None = None,
         preserve_background: bool = True,
+        tts_engine: str = "auto",
     ) -> JobResponse:
         """Persist initial job metadata and enqueue transcription (and optional dubbing)."""
         now = _utc_now_iso()
@@ -183,6 +184,8 @@ class JobManager:
             "do_diarization": do_diarization,
             "language": language.strip().lower() if language else None,
             "target_language": cleaned_target,
+            "tts_engine": tts_engine,
+            "tts_engine_used": None,
             "min_speakers": min_speakers,
             "max_speakers": max_speakers,
             "output_format": normalized_fmt,
@@ -204,7 +207,11 @@ class JobManager:
             self._persist_job(record)
 
         auto_dub = (
-            DubRequest(target_language=cleaned_target, preserve_background=preserve_background).model_dump()
+            DubRequest(
+                target_language=cleaned_target,
+                preserve_background=preserve_background,
+                tts_engine=tts_engine,  # type: ignore[arg-type]
+            ).model_dump()
             if cleaned_target
             else None
         )
@@ -228,6 +235,7 @@ class JobManager:
             record["message"] = f"Queued for dubbing ({dub_req.target_language})..."
             record["error"] = None
             record["target_language"] = normalize_lang_code(dub_req.target_language)
+            record["tts_engine"] = dub_req.tts_engine
             record["updated_at"] = _utc_now_iso()
             evt = self._events.get(job_id) or threading.Event()
             evt.clear()
@@ -466,14 +474,22 @@ class JobManager:
             data["target_language"] = target_lang
 
             _on_progress("synthesizing", 60.0, f"Synthesizing {target_lang} dubbed speech...")
+            engine_used_holder: list[str] = []
             clips, voice_map = synthesize_segments(
                 segments,
                 tts_dir,
                 target_language=target_lang,
+                source_language=data.get("language") or record.get("language"),
+                tts_engine=dub_req.tts_engine,
+                tts_python=self._settings.tts_venv_python,
                 speaker_voice_map=dub_req.speaker_voice_map,
                 vocals_wav_path=vocals_path if vocals_path.is_file() else None,
+                emotion_intensity=dub_req.emotion_intensity,
+                accent_bleed_control=dub_req.accent_bleed_control,
                 synth_fn=self._synth_fn,
                 progress_callback=_on_progress,
+                warnings_out=warnings_list,
+                engine_used_out=engine_used_holder,
             )
             if not clips:
                 raise RuntimeError("No speakable segments produced audio clips.")
@@ -516,6 +532,8 @@ class JobManager:
                 progress=100.0,
                 message=f"Dubbing complete ({target_lang}).",
                 target_language=target_lang,
+                tts_engine=dub_req.tts_engine,
+                tts_engine_used=engine_used_holder[0] if engine_used_holder else None,
                 has_stems=vocals_path.is_file() and cached_bg.is_file(),
                 has_dubbed_audio=dubbed_audio_path.is_file(),
                 has_dubbed_video=has_dubbed_video,
@@ -553,6 +571,8 @@ class JobManager:
             do_diarization=record["do_diarization"],
             language=record.get("language"),
             target_language=record.get("target_language"),
+            tts_engine=record.get("tts_engine", "auto"),
+            tts_engine_used=record.get("tts_engine_used"),
             has_video=bool(record.get("has_video", False)),
             has_stems=bool(record.get("has_stems", False)),
             has_dubbed_audio=bool(record.get("has_dubbed_audio", False)),

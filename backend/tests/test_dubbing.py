@@ -24,7 +24,13 @@ from services.media_utils import get_ffmpeg_path
 from services.mixer import fit_clip_to_slot, mix_dubbed_audio
 from services.separation import StemOutputs
 from services.translation import estimate_max_new_tokens, translate_segments
-from services.tts import SynthesizedClip, assign_speaker_voices
+from services.tts import (
+    SynthesizedClip,
+    assign_speaker_voices,
+    prepare_segment_prompts,
+    resolve_tts_engine,
+    synthesize_segments,
+)
 
 
 def _make_tone_wav(dest: Path, *, duration: float = 0.8, freq: int = 440, channels: int = 1, sr: int = 44100) -> Path:
@@ -142,6 +148,86 @@ class DubbingServicesTests(unittest.TestCase):
 
             self.assertGreater(loud_rms, quiet_rms * 2.0)
             self.assertGreater(gap_rms, 0.01)
+
+    def test_chatterbox_prompt_slicing_engine_resolution_and_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            sr = 24000
+            vocals = np.zeros((sr * 4, 2), dtype=np.float32)
+            t_seg0 = np.linspace(0, 1.5, int(sr * 1.5), endpoint=False, dtype=np.float32)
+            # Active speech [0.0..1.5], long silence [1.5..3.0], short speech [3.0..3.4]
+            vocals[: len(t_seg0), :] = (0.2 * np.sin(2 * np.pi * 300 * t_seg0))[:, None]
+            t_short = np.linspace(0, 0.4, int(sr * 0.4), endpoint=False, dtype=np.float32)
+            vocals[int(3.0 * sr) : int(3.0 * sr) + len(t_short), :] = (
+                0.2 * np.sin(2 * np.pi * 450 * t_short)
+            )[:, None]
+
+            vocals_path = tmp_dir / "vocals.wav"
+            sf.write(str(vocals_path), vocals, sr, subtype="PCM_16")
+
+            fake_python = tmp_dir / "python.exe"
+            fake_python.write_text("", encoding="utf-8")
+
+            warnings_list: list[str] = []
+            self.assertEqual(
+                resolve_tts_engine(
+                    "auto",
+                    target_language="hi",
+                    tts_python=fake_python,
+                    vocals_wav_path=vocals_path,
+                ),
+                "chatterbox",
+            )
+            self.assertEqual(
+                resolve_tts_engine(
+                    "chatterbox",
+                    target_language="ta",
+                    tts_python=fake_python,
+                    vocals_wav_path=vocals_path,
+                    warnings_out=warnings_list,
+                ),
+                "edge_tts",
+            )
+            self.assertEqual(len(warnings_list), 1)
+
+            segments = [
+                {"start": 0.0, "end": 2.9, "text": "Hello long", "translated_text": "नमस्ते"},
+                {"start": 3.0, "end": 3.4, "text": "Hi", "translated_text": "हाय"},
+            ]
+            prompts_map, fallback = prepare_segment_prompts(
+                segments,
+                vocals_path,
+                tmp_dir / "prompts",
+            )
+            self.assertIsNotNone(fallback)
+            self.assertTrue(prompts_map[0].name.startswith("seg_0000"))
+            # Short 0.4s segment falls back rather than feeding tiny noisy slice
+            self.assertNotEqual(prompts_map[1].name, "seg_0001.wav")
+            # Long silence in [0.0..2.9] should be trimmed down to ~1.5s active speech
+            self.assertLess(sf.info(str(prompts_map[0])).duration, 1.8)
+
+            def _fake_batch(*, tts_python, manifest_path, total_items, progress_callback):
+                import json as _json
+
+                manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+                for item in manifest["items"]:
+                    _make_tone_wav(Path(item["output_wav"]), duration=0.5, sr=24000)
+
+            used: list[str] = []
+            with patch("services.tts._run_chatterbox_batch", side_effect=_fake_batch):
+                clips, voices = synthesize_segments(
+                    segments,
+                    tmp_dir / "out",
+                    target_language="hi",
+                    source_language="en",
+                    tts_engine="chatterbox",
+                    tts_python=fake_python,
+                    vocals_wav_path=vocals_path,
+                    engine_used_out=used,
+                )
+            self.assertEqual(used, ["chatterbox"])
+            self.assertEqual(voices["DEFAULT"], "chatterbox-cloned")
+            self.assertEqual(len(clips), 2)
 
 
 class DubbingApiTests(unittest.TestCase):
